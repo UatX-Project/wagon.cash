@@ -63,9 +63,9 @@
 <div class="section">
   <p style="text-align: center"><img src="logo.png" alt="HopCashLogo"></p>
   
-  <p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="/?lang=en"><span class="tag is-white">English</span></a>&nbsp;&nbsp;&nbsp;<a
-      		       href="/?lang=cn"><span class="tag is-white">中文</span></a></p>
+  <p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="/?lang=en"><span class="tag is-white">English</span></a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="/?lang=cn"><span class="tag is-white">中文</span></a></p>
 
   <p style="font-size: 8px;">&nbsp;</p>
   <p style="text-align: center"><button class="button is-small" onclick="addSmartBCH()" data-T>
@@ -127,7 +127,7 @@
     <p style="font-size: 8px;">&nbsp;</p>
     <p id="hopOutTxInfo" style="display: none">
       <span data-T>Your cross-chain transfer's transaction is://您的跨链转账交易为：</span><a id="hopOutTxLink" href=""></a><br>
-      <span data-T>The recipient address is continuously watched here. If it receives new coins in a transaction, the transaction's will be shown below.//这里将持续监控主链收款地址，一旦它在某交易中接收到了新币，此交易将被显示在下面。</span>
+      <span data-T>The recipient address is continuously watched here. Once it receives new coins, you'll be notified below.//这里将持续监控主链收款地址，一旦它接收到了新币，您将会被提示。</span>
     </p> 
     <div id="outProgress"></div>
   </div>
@@ -144,6 +144,7 @@
 <center><code><a href="https://t.me/hopcash">https://t.me/hopcash</a></code></center>
 <script type="text/javascript">
 const CCAddress = "0x1C00b18A71802d13D93C76Be60B716099CC06C55"
+const IncomeAddrOnSmartBCH = "0x1c4DCD2153Eb0f5267CB2511D327B39800E7197b"
 const IncomeAddrOnBCH = "bitcoincash:qplq0gks9696xuhmar3kwxrn9u63rq9llumfezlljz"
 const MinerFee = 800 //satoshi
 
@@ -240,8 +241,14 @@ function AddToInGrogressDiv(text, linkNode) {
 }
 
 async function transfer() {
-	const addr = document.getElementById("recipientAddr").value;
-	if(!bchaddr.isValidAddress(addr)) {
+	const addr = document.getElementById("recipientAddr").value.trim();
+	if(bchaddr.isLegacyAddress(addr)) {
+		var r = confirm(T("⚠️Warning: Please make sure the recipients address is for BCH, instead of BTC, or you'll lost the coins. Do you want to preceed with this legacy-format address?//⚠️警告：请确认接收者的地址是BCH收款地址，而非BTC收款地址，否则您将丢失您的资金！您希望继续使用此Legacy格式的地址进行跨链转账吗？"));
+		if(!r) {
+			return
+		}
+	}
+	if(!bchaddr.isLegacyAddress(addr) && !bchaddr.isCashAddress(addr)) {
 		myAlert(T("Invalid address for BCH main chain://不是有效的BCH主链地址：")+addr);
 		return;
 	}
@@ -251,10 +258,12 @@ async function transfer() {
 	const provider = new ethers.providers.Web3Provider(window.ethereum);
 	const signer = provider.getSigner();
 	const txReq = {
-	      to: CrossChainAddrOnSmartBCH,
+	      to: IncomeAddrOnSmartBCH,
 	      value: amount,
 	      data: ethers.utils.hexlify(ethers.utils.toUtf8Bytes(addr)),
 	};
+
+	document.getElementById("transferBtn").disabled = true;
 	const txResp = await signer.sendTransaction(txReq);
 	const receipt = await txResp.wait();
 	
@@ -264,23 +273,18 @@ async function transfer() {
 	document.getElementById("hopOutForm").style.display = "none";
 	document.getElementById("hopOutTxInfo").style.display = "block";
 
-	window.legacyAddr = bchaddr.toLegacyAddress(addr);
+	window.targetAddr = addr;
 	const wallet = await Wallet.watchOnly(addr);
-	wallet.watchAddressTransactions(showTxOfRecipient);
+	wallet.watchBalance(showBalanceOfRecipient);
 }
 
-function showTxOfRecipient(tx) {
-	var amount = 0;
-	for(var i=0; i<tx.vout.length; i++) {
-		const utxo = tx.vout[i]
-		if(utxo.scriptPubKey && utxo.scriptPubKey.type == "pubkeyhash" && utxo.scriptPubKey.addresses &&
-		utxo.scriptPubKey.addresses[0] == window.legacyAddr) {
-			amount += utxo.value;
-		}
-	}
-	const text = T(`Recipient address received ${amount} BCH in a new transaction: //收款地址在新交易中收到了${amount} BCH：`);
+function showBalanceOfRecipient(balance) {
+	console.log("balance", balance);
+	const text = T(`Recipient's balance is changed to ${balance.bch} BCH now.//接收地址的余额变成了${balance.bch}BCH。`);
 	var textNode = document.createTextNode(text);
-	var linkNode = makeBchTxLink(tx.hash);
+	var linkNode = document.createElement("A");
+	linkNode.href = "https://blockchair.com/bitcoin-cash/address/"+window.targetAddr;
+	linkNode.innerHTML = T("View it on explorer//在浏览器中查看");
 	var node = document.createElement("P");
 	node.appendChild(textNode);
 	node.appendChild(linkNode);
