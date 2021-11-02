@@ -123,6 +123,7 @@
       <p style="font-size: 8px;">&nbsp;</p>
       <center><button class="button is-success is-light" onclick="transfer()" 
 	id="transferBtn" data-T>Cross-chain Transfer//跨链转账</button></center>
+      <div id="hisAddrTable"></div>
     </div>
     <p style="font-size: 8px;">&nbsp;</p>
     <p id="hopOutTxInfo" style="display: none">
@@ -159,6 +160,12 @@ async function showHopIn() {
 function showHopOut() {
 	document.getElementById("hopInDiv").style.display = "none";
 	document.getElementById("hopOutDiv").style.display = "block";
+	const addrList = getRecentAddress();
+	if(addrList.length == 0) return;
+	const addrTbl = makeHisAddrTable(addrList);
+	const hint = T("Following is some recipient addresses you used before. You can click one to use it for this time://以下是一些您之前使用过的收款地址，可点击其中一个作为此次收款地址：")
+	var hisAddrTable = document.getElementById("hisAddrTable")
+	hisAddrTable.innerHTML = "<p><br>"+hint+"</p>"+addrTbl;
 }
 
 async function initWallet() {
@@ -242,6 +249,43 @@ function AddToInGrogressDiv(text, linkNode) {
 	document.getElementById("inProgress").appendChild(node);
 }
 
+function getRecentAddress() {
+	var addrList = []
+	for(var i=0; i<localStorage.length; i++) {
+		const addr = localStorage.key(i)
+		const lastAccess = localStorage.getItem(addr)
+		addrList.push({addr, lastAccess})
+	}
+	addrList.sort(function(a, b) {return a.lastAccess - b.lastAccess})
+	const end = Math.min(addrList.length, 5)
+	return addrList.slice(0, end)
+}
+
+function makeHisAddrTable(addrList) {
+	var contents = []
+	for(var i=0; i<addrList.length; i++) {
+		const addr = addrList[i].addr;
+		var truncatedAddr = addr;
+		if(truncatedAddr.length > 20) {
+			truncatedAddr = addr.substr(0, 10)+"..."+addr.substr(addr.length-10)
+			console.log("ncatedAddr", addr.substr(0, 10), addr.substr(addr.length-10))
+		}
+		console.log("truncatedAddr", truncatedAddr, truncatedAddr.length)
+		const txt = T("View//查看")
+		const url = "https://blockchair.com/bitcoin-cash/address/"+addr
+		var s = `<p style="font-size: 8px>&nbsp;</p><p style="font-size: 8px>\n`
+       		s += `<a href="javascript:void(0)" onclick="return fill('${addr}');">${truncatedAddr}</a>\n`
+		s += `&nbsp;<a href="${url}" target="_blank">${txt}</a></p>`
+		contents.push(s)
+	}
+	return contents.join("\n")
+}
+
+function fill(addr) {
+	document.getElementById("recipientAddr").value = addr;
+	return false;
+}
+
 async function transfer() {
 	const addr = document.getElementById("recipientAddr").value.trim();
 	if(!bchaddr.isValidAddress(addr) || bchaddr.isBitpayAddress(addr)) {
@@ -254,6 +298,12 @@ async function transfer() {
 			return
 		}
 	}
+	var shorterAddr = addr;
+	const prefix = "bitcoincash:"
+	if(addr.startsWith(prefix)) {
+		shorterAddr = addr.substr(prefix.length);
+	}
+	localStorage.setItem(shorterAddr, Date.now())
 	window.recipientAddr = bchaddr.toCashAddress(addr);
 
 	console.log("recipientAddr", window.recipientAddr)
@@ -432,6 +482,8 @@ function IsPC() {
 if(IsPC()) {
    document.body.style.zoom = 1.36;
 }
+
+//localStorage.clear()
 
 </script>
 </body>
