@@ -80,7 +80,7 @@
 
   <div id="selDiv" style="display: none">
     <center data-T>Current Side-Chain Address: //当前侧链地址：</center>
-    <code id="currAddr"></code>
+    <a href="" id="currAddrLink" target="_blank"><code id="currAddr"></code></a>
     <p style="font-size: 8px;">&nbsp;</p>
     <input type="radio" style="height: 12px" name="SelectDir" id="hopIn"
      value="HOPIN" onclick="showHopIn()"><label for="hopIn" data-T style="font-size: 18px"
@@ -126,7 +126,7 @@
     </div>
     <p style="font-size: 8px;">&nbsp;</p>
     <p id="hopOutTxInfo" style="display: none">
-      <span data-T>Your cross-chain transfer's transaction is://您的跨链转账交易为：</span><a id="hopOutTxLink" href=""></a><br>
+      <span data-T>Your cross-chain transfer's transaction is://您的跨链转账交易为：</span><a id="hopOutTxLink" href="" target="_blank"></a><br>
       <span data-T>The recipient address is continuously watched here. Once it receives new coins, you'll be notified below.//这里将持续监控主链收款地址，一旦它接收到了新币，您将会被提示。</span>
     </p> 
     <div id="outProgress"></div>
@@ -141,7 +141,7 @@
 </div>
 <p style="font-size: 8px;">&nbsp;</p>
 <hr>
-<center><code><a href="https://t.me/hopcash">https://t.me/hopcash</a></code></center>
+<center><code><a target="_blank" href="https://t.me/hopcash">https://t.me/hopcash</a></code></center>
 <script type="text/javascript">
 const CCAddress = "0x1C00b18A71802d13D93C76Be60B716099CC06C55"
 const IncomeAddrOnSmartBCH = "0x1c4DCD2153Eb0f5267CB2511D327B39800E7197b"
@@ -187,6 +187,7 @@ async function initWallet() {
 function makeBchTxLink(txId) {
 	var linkNode = document.createElement("A");
 	linkNode.href = "https://blockchair.com/bitcoin-cash/transaction/"+txId;
+	linkNode.target = "_blank"
 	linkNode.innerHTML = "<code>"+txId+"</code>";
 	return linkNode;
 }
@@ -194,6 +195,7 @@ function makeBchTxLink(txId) {
 function makeSmartBchTxLink(txId) {
 	var linkNode = document.createElement("A");
 	linkNode.href = "https://www.smartscan.cash/transaction/"+txId;
+	linkNode.target = "_blank"
 	linkNode.innerHTML = "<code>"+txId+"</code>";
 	return linkNode;
 }
@@ -242,25 +244,40 @@ function AddToInGrogressDiv(text, linkNode) {
 
 async function transfer() {
 	const addr = document.getElementById("recipientAddr").value.trim();
+	if(!bchaddr.isValidAddress(addr) || bchaddr.isBitpayAddress(addr)) {
+		myAlert(T("Invalid address for BCH main chain://不是有效的BCH主链地址：")+addr);
+		return;
+	}
 	if(bchaddr.isLegacyAddress(addr)) {
 		var r = confirm(T("⚠️Warning: Please make sure the recipients address is for BCH, instead of BTC, or you'll lost the coins. Do you want to preceed with this legacy-format address?//⚠️警告：请确认接收者的地址是BCH收款地址，而非BTC收款地址，否则您将丢失您的资金！您希望继续使用此Legacy格式的地址进行跨链转账吗？"));
 		if(!r) {
 			return
 		}
 	}
-	if(!bchaddr.isLegacyAddress(addr) && !bchaddr.isCashAddress(addr)) {
-		myAlert(T("Invalid address for BCH main chain://不是有效的BCH主链地址：")+addr);
-		return;
-	}
-	window.recipientAddr = addr;
-	const amount = ethers.utils.parseUnits(document.getElementById("amount").value);
+	window.recipientAddr = bchaddr.toCashAddress(addr);
+
+	console.log("recipientAddr", window.recipientAddr)
 	
 	const provider = new ethers.providers.Web3Provider(window.ethereum);
 	const signer = provider.getSigner();
+	const balance256 = await provider.getBalance(await signer.getAddress())
+	const balance = ethers.utils.formatUnits(balance256)
+	const amount = document.getElementById("amount").value
+	if(amount.length == 0 || amount <= 0) {
+		myAlert(T("Please enter valid transfer amount//请输入有效的传输金额"));
+		return;
+	}
+	const amount256 = ethers.utils.parseUnits(amount)
+	if(balance < amount + 0.00005) {
+		myAlert(T(`You balance is ${balance}, not enough for this transfer.//您的余额仅剩${balance}，不足以完成本次传输。`));
+		return;
+	}
+
 	const txReq = {
 	      to: IncomeAddrOnSmartBCH,
-	      value: amount,
+	      value: amount256,
 	      data: ethers.utils.hexlify(ethers.utils.toUtf8Bytes(addr)),
+	      gasPrice: ethers.BigNumber.from("0x3e63fa64"), //1.05Gwei
 	};
 
 	document.getElementById("transferBtn").disabled = true;
@@ -273,17 +290,17 @@ async function transfer() {
 	document.getElementById("hopOutForm").style.display = "none";
 	document.getElementById("hopOutTxInfo").style.display = "block";
 
-	window.targetAddr = addr;
-	const wallet = await Wallet.watchOnly(addr);
+	const wallet = await Wallet.watchOnly(window.recipientAddr);
 	wallet.watchBalance(showBalanceOfRecipient);
 }
 
 function showBalanceOfRecipient(balance) {
 	console.log("balance", balance);
-	const text = T(`Recipient's balance is changed to ${balance.bch} BCH now.//接收地址的余额变成了${balance.bch}BCH。`);
+	const text = T(`Recipient's balance is changed to ${balance.bch} BCH now.//收款地址的余额变成了${balance.bch}BCH。`);
 	var textNode = document.createTextNode(text);
 	var linkNode = document.createElement("A");
-	linkNode.href = "https://blockchair.com/bitcoin-cash/address/"+window.targetAddr;
+	linkNode.href = "https://blockchair.com/bitcoin-cash/address/"+window.recipientAddr;
+	linkNode.target = "_blank"
 	linkNode.innerHTML = T("View it on explorer//在浏览器中查看");
 	var node = document.createElement("P");
 	node.appendChild(textNode);
@@ -320,7 +337,9 @@ async function connectWallet() {
 	if(!connect()) {return;}
 	const provider = new ethers.providers.Web3Provider(window.ethereum);
 	const signer = provider.getSigner();
-	document.getElementById("currAddr").innerText = await signer.getAddress();
+	const addr = await signer.getAddress();
+	document.getElementById("currAddr").innerText = addr;
+	document.getElementById("currAddrLink").href = "https://www.smartscan.cash/address/"+addr;
 	document.getElementById("walletP").style.display = "none";
 	document.getElementById("selDiv").style.display = "block";
 }
