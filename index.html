@@ -116,6 +116,7 @@
   <div id="hopOutDiv" style="display: none">
     <hr/>
     <div id="hopOutForm">
+      <center><b data-T>Pool Balance on main chain://主链资金池余额：</b><span id="bchPoolBalance"></span></center>
       <p><span data-T>Recipient Address on main chain://主链收款地址：</span><br>
       <input id="recipientAddr" class="input is-success is-small" type="text"></p>
       <p><span data-T>Amount://金额：</span>
@@ -144,9 +145,10 @@
 <hr>
 <center><code><a target="_blank" href="https://t.me/hopcash">https://t.me/hopcash</a></code></center>
 <script type="text/javascript">
-const CCAddress = "0x1C00b18A71802d13D93C76Be60B716099CC06C55"
+const CCTransAddress = "0x1C00b18A71802d13D93C76Be60B716099CC06C55"
 const IncomeAddrOnSmartBCH = "0x1c4DCD2153Eb0f5267CB2511D327B39800E7197b"
 const IncomeAddrOnBCH = "bitcoincash:qplq0gks9696xuhmar3kwxrn9u63rq9llumfezlljz"
+const PoolAddrOnBCH = "bitcoincash:qrvsgv8j5ed2fdfxwxk7d895uqw373j8fcmzqtcwzt"
 const MinerFee = 800 //satoshi
 
 async function showHopIn() {
@@ -157,9 +159,19 @@ async function showHopIn() {
 	document.getElementById("hopInDiv").style.display = "block";
 }
 
-function showHopOut() {
+async function showHopOut() {
 	document.getElementById("hopInDiv").style.display = "none";
 	document.getElementById("hopOutDiv").style.display = "block";
+
+	var bchPoolWallet = await Wallet.watchOnly(PoolAddrOnBCH);
+	var updatePoolBalance = async function() {
+		const sats = await bchPoolWallet.getBalance("sat")
+		document.getElementById("bchPoolBalance").innerText = sats/100000000.
+	}
+	updatePoolBalance();
+        clearInterval(window.bchPoolTimer);
+	window.bchPoolTimer = setInterval(updatePoolBalance, 6000);
+
 	const addrList = getRecentAddress();
 	if(addrList.length == 0) return;
 	const addrTbl = makeHisAddrTable(addrList);
@@ -213,10 +225,10 @@ async function hopInRefresh() {
 	const myAddr = await signer.getAddress();
 
 	// Check Main Chain
-	const balance = await wallet.getBalance('sat');
+	const balance = await window.wallet.getBalance('sat');
 	console.log("balance", balance);
 	if(balance >= 20000/*0.0002BCH*/) {
-		const txData = await wallet.send([
+		const txData = await window.wallet.send([
 			OpReturnDataFromString(myAddr),
 			{cashaddr: IncomeAddrOnBCH, value: balance-MinerFee, unit: "sat"},
 		]);
@@ -228,7 +240,7 @@ async function hopInRefresh() {
 	const Transfer = ethers.utils.id("Transfer(address,address,uint256)");
 	const myAddrPad32 = ethers.utils.hexZeroPad(myAddr, 32);
 	var tokenIdList = [];
-	var filter = {address: CCAddress, topics: [Transfer, null/*sender*/, myAddrPad32/*receiver*/]};
+	var filter = {address: CCTransAddress, topics: [Transfer, null/*sender*/, myAddrPad32/*receiver*/]};
 	filter.toBlock = 10000*10000 // a very large value
 	filter.fromBlock = window.FromBlock;
 	var logs = await provider.getLogs(filter);
@@ -256,7 +268,7 @@ function getRecentAddress() {
 		const lastAccess = localStorage.getItem(addr)
 		addrList.push({addr, lastAccess})
 	}
-	addrList.sort(function(a, b) {return a.lastAccess - b.lastAccess})
+	addrList.sort(function(a, b) {return b.lastAccess - a.lastAccess})
 	const end = Math.min(addrList.length, 5)
 	return addrList.slice(0, end)
 }
@@ -268,12 +280,10 @@ function makeHisAddrTable(addrList) {
 		var truncatedAddr = addr;
 		if(truncatedAddr.length > 20) {
 			truncatedAddr = addr.substr(0, 10)+"..."+addr.substr(addr.length-10)
-			console.log("ncatedAddr", addr.substr(0, 10), addr.substr(addr.length-10))
 		}
-		console.log("truncatedAddr", truncatedAddr, truncatedAddr.length)
 		const txt = T("View//查看")
 		const url = "https://blockchair.com/bitcoin-cash/address/"+addr
-		var s = `<p style="font-size: 8px>&nbsp;</p><p style="font-size: 8px>\n`
+		var s = `<p style="font-size: 4px>&nbsp;</p><p style="font-size: 8px>\n`
        		s += `<a href="javascript:void(0)" onclick="return fill('${addr}');">${truncatedAddr}</a>\n`
 		s += `&nbsp;<a href="${url}" target="_blank">${txt}</a></p>`
 		contents.push(s)
@@ -323,6 +333,10 @@ async function transfer() {
 		return;
 	}
 
+	document.getElementById("transferBtn").disabled = true;
+	window.recipientWallet = await Wallet.watchOnly(window.recipientAddr);
+	window.lastSeenBalance = await window.recipientWallet.getBalance("sat");
+
 	const txReq = {
 	      to: IncomeAddrOnSmartBCH,
 	      value: amount256,
@@ -330,7 +344,6 @@ async function transfer() {
 	      gasPrice: ethers.BigNumber.from("0x3e63fa64"), //1.05Gwei
 	};
 
-	document.getElementById("transferBtn").disabled = true;
 	const txResp = await signer.sendTransaction(txReq);
 	const receipt = await txResp.wait();
 	
@@ -340,13 +353,18 @@ async function transfer() {
 	document.getElementById("hopOutForm").style.display = "none";
 	document.getElementById("hopOutTxInfo").style.display = "block";
 
-	const wallet = await Wallet.watchOnly(window.recipientAddr);
-	wallet.watchBalance(showBalanceOfRecipient);
+        clearInterval(window.refreshTimer);
+        window.refreshTimer = setInterval(hopOutRefresh, 6000);
 }
 
-function showBalanceOfRecipient(balance) {
+async function hopOutRefresh() {
+	const balance = await window.recipientWallet.getBalance("sat");
 	console.log("balance", balance);
-	const text = T(`Recipient's balance is changed to ${balance.bch} BCH now.//收款地址的余额变成了${balance.bch}BCH。`);
+	if(balance == window.lastSeenBalance) return;
+	const b = balance / 100000000.0;
+	const lb = window.lastSeenBalance / 100000000.0;
+	window.lastSeenBalance = balance;
+	const text = T(`Recipient's balance is changed to ${b} BCH from ${lb} BCH.//收款地址的余额由${lb}BCH变成了${b}BCH。`);
 	var textNode = document.createTextNode(text);
 	var linkNode = document.createElement("A");
 	linkNode.href = "https://blockchair.com/bitcoin-cash/address/"+window.recipientAddr;
