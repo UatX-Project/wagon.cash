@@ -256,7 +256,6 @@ async function hopInRefresh() {
 
 	// Check Main Chain
 	const balance = await window.hopwallet.getBalance('sat');
-	alert("now balance"+balance);
 	if(balance >= 20000/*0.0002BCH*/) {
 		const txData = await window.hopwallet.send([
 			OpReturnDataFromString(ccTargetAddr), //first output is just OP_RETURN
